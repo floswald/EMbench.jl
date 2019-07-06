@@ -192,6 +192,7 @@ function bm_R(y;iters=100)
     library(tictoc)
 
     # define a `repeat` function
+    # copied from https://github.com/tlamadon/rblm/blob/master/R/utils.R#L6
     spread <- function (A, loc, dims) {
         if (!(is.array(A))) {
             A = array(A, dim = c(length(A)))
