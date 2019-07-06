@@ -53,11 +53,11 @@ function allbm()
     return (d,pl)
 end
 
-function bm(iters,N)
+function bm(iters,N; doplot = false)
     alpha_tol = 0.1  # no convergence, hence big tol
     mu_tol    = 0.5  # no convergence, hence big tol
     tol       = 0.0005  # all algos should converge to same point
-    d         = sdata(2,N)
+    d         = sdata(2,N,doplot = doplot)
     y         = d[:y]
     N         = length(y)
     @info "true values" N=N μ=d[:μ] σ=d[:σ] α=d[:α]
