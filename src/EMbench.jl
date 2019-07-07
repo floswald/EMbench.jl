@@ -33,6 +33,117 @@ function sdata(k,n; doplot = false)
     return Dict(:y => y, :μ => μ, :σ => σ, :α => α)
 end
 
+function sdata2(N,T; doplot = false)
+    Random.seed!(3333)
+    # true values
+    μ = [-2.0 10.0;    # μ[k,l]: worker 1 in firm 1 has mean of 2, worker 1 in firm 2 has mean 5
+         -3.0 8.0]
+    σ = ones(2,2)
+    α = [0.3,0.7]
+    β = [0.5, 0.5]   # firm shares are given for now!
+
+    m = MixtureModel(vec([Normal(μ[i,j], σ[i,j]) for i in 1:2, j in 1:2]), kron(α,β))
+    ps = sampler(m)
+    ids = rand(ps.psampler,N,T)
+    y   = rand.(m.components[ids])
+    firm = copy(ids)
+    firm[ids .< 3] .= 1
+    firm[ids .> 2] .= 2
+
+    data = DataFrame(i = repeat(1:N, outer = T), t = repeat(1:T, inner = N), y = y[:], l = firm[:])
+    @info "true" α=α μ=μ σ=σ
+
+    if doplot
+        pl = plot(
+            plot(m,linewidth=2), 
+            plot(m,linewidth=2, fill=(0,:red,0.5), components = false, title="Mixture"),dpi = 300
+            )
+        # savefig("mixtures2.png")
+        return Dict(:data => data, :μ => μ, :σ => σ, :α => α, :β => β, :plot => pl)
+    else
+        return Dict(:data => data, :μ => μ, :σ => σ, :α => α, :β => β)
+    end
+
+end
+
+function bm_jl2(d::DataFrame; iters=100)
+
+    # poor starting values
+    μ = [1.0 4.0;    # μ[k,l]: worker 1 in firm 1 has mean of 2, worker 1 in firm 2 has mean 5
+         2.0 7.0]
+    σ = ones(2,2)
+    α = [0.5,0.5]
+    β = [0.5, 0.5]   # firm shares are given for now! irrelevant for this exercise.
+
+    N = maximum(d.i)
+    T = maximum(d.t)
+    L = maximum(d.l)
+    K = length(α)
+
+    # initialize objects    
+    Lik = zeros(N,K)  # stationary model: same means and vars in each period
+    p = similar(Lik)
+    h = zeros(K,L)   # distribution of matches
+
+    for it in 1:iters
+
+        dists = [Normal(μ[ik,il], σ[ik,il] ) for ik in 1:K, il in 1:L]
+
+        fill!(Lik,0.0)
+
+        # evaluate likelihood for each type 
+        for i in 1:N
+            for k in 1:K
+                Lik[i,k] += log(α[k])
+                for t in 1:T
+                    idx = i + (t-1)*N
+                    l = d.l[idx]
+                    # Distributions.jl logpdf()
+                    Lik[i,k] += logpdf.(dists[k,l], d.y[idx]) 
+                end
+            end
+        end
+
+        # get posterior of each type 
+        p[:,:] = exp.(Lik .- logsumexp(Lik))
+        # @info "p" p=p
+      
+        # with p in hand, update type proportions
+        α[:] .= vec(sum(p,dims=1) ./ N)
+
+        fill!(μ,0.0)
+        fill!(σ,0.0)
+        fill!(h,0.0)
+
+        # means need to be updated in a loop 
+        for i in 1:N
+            for t in 1:T
+                idx = i + (t-1)*N
+                for k in 1:K
+                    pp = p[i,k]  # posterior of worker i to be type k
+                    h[k,d.l[idx]] += pp
+                    μ[k,d.l[idx]] += pp * d.y[idx]
+                end
+            end
+        end
+        μ[:,:] .= μ ./ h
+
+
+        for i in 1:N
+            for t in 1:T
+                idx = i + (t-1)*N
+                for k in 1:K
+                    pp = p[i,k]  # posterior of worker i to be type k
+                    σ[k,d.l[idx]] += pp * (d.y[idx] - μ[k,d.l[idx]])^2
+                end
+            end
+        end
+        σ[:,:] .= sqrt.(σ ./ h)
+        @info "status" α=α μ=μ σ=σ
+    end
+    return Dict(:α => α, :μ => μ, :σ => σ)
+end
+
 
 function allbm()
     ns = [10_000,100_000,1_000_000,10_000_000]
@@ -103,7 +214,7 @@ end
 
 # Naive julia hand implementation
 
-function logsumexp(x::Matrix{Float64})
+function logsumexp(x::Array{Float64})
     vm = maximum(x,dims = 2)
     log.( sum( exp.( x .- vm ), dims= 2 )) .+ vm
 end
