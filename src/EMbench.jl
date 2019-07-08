@@ -33,36 +33,29 @@ function sdata(k,n; doplot = false)
     return Dict(:y => y, :μ => μ, :σ => σ, :α => α)
 end
 
-function sdata2(N,T; doplot = false)
+function sdata2(N,T)
     Random.seed!(3333)
     # true values
     μ = [-2.0 10.0;    # μ[k,l]: worker 1 in firm 1 has mean of 2, worker 1 in firm 2 has mean 5
          -3.0 8.0]
     σ = ones(2,2)
     α = [0.3,0.7]
-    β = [0.5, 0.5]   # firm shares are given for now!
 
-    m = MixtureModel(vec([Normal(μ[i,j], σ[i,j]) for i in 1:2, j in 1:2]), kron(α,β))
-    ps = sampler(m)
-    ids = rand(ps.psampler,N,T)
-    y   = rand.(m.components[ids])
-    firm = copy(ids)
-    firm[ids .< 3] .= 1
-    firm[ids .> 2] .= 2
+    fid = rand([1,2],N*T)
+    k   = ifelse.(rand(N) .< α[1], 1, 2)
+    y = zeros(N*T)
+    dist = [Normal(μ[i,j],σ[i,j]) for i in 1:2, j in 1:2]
+    for i in 1:N
+        for t in 1:T
+            idx = i + (t-1)*N
+            y[idx] = rand(dist[k[i],fid[idx]])
+        end
+    end
 
-    data = DataFrame(i = repeat(1:N, outer = T), t = repeat(1:T, inner = N), y = y[:], l = firm[:])
+    data = DataFrame(i = repeat(1:N, outer = T), t = repeat(1:T, inner = N), y = y[:], l = fid[:],k = repeat(k, outer = T))
     @info "true" α=α μ=μ σ=σ
 
-    if doplot
-        pl = plot(
-            plot(m,linewidth=2), 
-            plot(m,linewidth=2, fill=(0,:red,0.5), components = false, title="Mixture"),dpi = 300
-            )
-        # savefig("mixtures2.png")
-        return Dict(:data => data, :μ => μ, :σ => σ, :α => α, :β => β, :plot => pl)
-    else
-        return Dict(:data => data, :μ => μ, :σ => σ, :α => α, :β => β)
-    end
+    return Dict(:data => data, :μ => μ, :σ => σ, :α => α)
 
 end
 
@@ -73,7 +66,6 @@ function bm_jl2(d::DataFrame; iters=100)
          2.0 7.0]
     σ = ones(2,2)
     α = [0.5,0.5]
-    β = [0.5, 0.5]   # firm shares are given for now! irrelevant for this exercise.
 
     N = maximum(d.i)
     T = maximum(d.t)
@@ -86,6 +78,7 @@ function bm_jl2(d::DataFrame; iters=100)
     h = zeros(K,L)   # distribution of matches
 
     for it in 1:iters
+        @info "status" α=α μ=μ σ=σ
 
         dists = [Normal(μ[ik,il], σ[ik,il] ) for ik in 1:K, il in 1:L]
 
@@ -139,9 +132,13 @@ function bm_jl2(d::DataFrame; iters=100)
             end
         end
         σ[:,:] .= sqrt.(σ ./ h)
-        @info "status" α=α μ=μ σ=σ
     end
     return Dict(:α => α, :μ => μ, :σ => σ)
+end
+
+function bm2()
+    d = EMbench.sdata2(10000,2)  
+    EMbench.bm_jl2(d[:data],iters = 100)
 end
 
 
